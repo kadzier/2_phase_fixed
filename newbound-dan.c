@@ -35,7 +35,7 @@ typedef struct {
     int debug_level;
 } input_params;
 
-int PerformRegGamma = 1;
+int PerformRegGamma = 0;
 int PerformJumping = 1;
 
 
@@ -264,6 +264,7 @@ unsigned long int ell = 0;
 
 
 void Iter_f_b(){
+
     // Eta must already be bumped to ellth iteration before calling
     double new_val;
     for (int b=Sigma+K;b>=0;b--){
@@ -289,7 +290,7 @@ void Iter_f_b(){
             for (int i=0;i<dist_len;i++){
                 EtaPlusOne += (Eta_i[i] * (1 - udist[i]));
             }
-            
+
             FrozenFilterHas_i[i] += f_b[i+Sigma-K] * FreezesFrom_i[i] * EtaPlusOne;
             if (FrozenFilterHas_i[i] > .00001){
                 printf("FF[%lld] at l=%ld: %.20lf\n", i+Sigma-K, ell, FrozenFilterHas_i[i]);
@@ -415,6 +416,8 @@ void BootJumpAlphaBeta(){
 }
 
 void Iter_j_b(double short_em_is_one, int M){
+
+
     // Eta must already be bumped to ellth iteration before calling
     double new_val;
     for (int b=Sigma+K;b>=0;b--){
@@ -437,24 +440,25 @@ void Iter_j_b(double short_em_is_one, int M){
         double frozeSum = 0;
         double overallFactor = 0;
         for (int i=0;i<K;i++){
-            Iter_Jump_Eta_i(M);
+            
 
-            FrozenFilterHas_i_Jump[i] += j_b[i+Sigma-K] * FreezesFrom_i[i] * JumpEta;
-            //if (FrozenFilterHas_i_Jump[i] > .00001){
-                printf("FF[%lld] at l=%f: %.20lf\n", i+Sigma-K, jump_ell, FrozenFilterHas_i_Jump[i]);
+            FrozenFilterHas_i[i] += j_b[i+Sigma-K] * FreezesFrom_i[i];
+            if (FrozenFilterHas_i[i] > .00001){
+                printf("FF[%lld] at l=%f: %.20lf\n", i+Sigma-K, jump_ell, FrozenFilterHas_i[i]);
                 printf("f_b[%lld]: %f, Frfr: %lf\n",i+Sigma-K, f_b[i+Sigma-K],
                        FreezesFrom_i[i]);
-                frozeSum += FrozenFilterHas_i_Jump[i];
+                frozeSum += FrozenFilterHas_i[i];
                 double miss = 1 - pow(((Sigma-K+i)*1.0)/(BloomSize*1.0),K);
-                overallFactor += FrozenFilterHas_i_Jump[i] * miss;
-                printf("frozeSum: %f, overallFactor: %f\n", frozeSum, overallFactor);
-            //}
+                overallFactor += FrozenFilterHas_i[i] * miss;
+                printf("froze at %d Sum: %f, overallFactor: %f\n", i, frozeSum, overallFactor);
+            }
             printf("M: %d\n", M);
             if (frozeSum != frozeSum){
+                printf("got nan!\n");
                 printf("j_b: %f, freeze from i: %f, jump eta: %f\n", j_b[i+Sigma-K], FreezesFrom_i[i], JumpEta);
                 //exit(0);
             }
-            deIter_Jump_Eta_i(M);
+            
         }
     }
     return;
@@ -825,7 +829,19 @@ int Calculate(input_params p){
         }
 
         ell++;
-        
+        if (jumping == 1 && (ell > jump_ell)){
+
+            double frozeSum = 0;
+            double overallFactor = 0;
+            for (int i = 0; i < K; i++){
+                frozeSum += FrozenFilterHas_i[i];
+                double miss = 1 - pow(((Sigma-K+i)*1.0)/(BloomSize*1.0),K);
+                overallFactor += FrozenFilterHas_i[i] * miss;
+            }
+            printf("froze at i sum: %f, overall factor: %f\n", frozeSum, overallFactor);
+            
+            exit(0);
+        }
     }
     fprintf(thefile, "FINAL: l: %lu, gamma: %.10lf, l-ratio: %.5lf\n",
            ell, gamma, LowerBound() / gamma);
