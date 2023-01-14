@@ -35,7 +35,7 @@ typedef struct {
     int debug_level;
 } input_params;
 
-int PerformRegGamma = 0;
+int PerformRegGamma = 1;
 int PerformJumping = 1;
 
 
@@ -161,6 +161,9 @@ int SwapActive = 0;
 double Eta_i[MAX_Z];
 double Eta = 1;
 
+double JumpEta = 0;
+double Eta_Jump_i[MAX_Z];
+
 int firstEtaIter = 1;
 void Init_Eta_i(){
     firstEtaIter = 1;
@@ -199,11 +202,28 @@ void Iter_Eta_i(){
     return;
 }
 
+void Iter_Jump_Eta_i(int M){
+    JumpEta = 0;
+    for (int i=0;i<dist_len;i++){
+        Eta_Jump_i[i] *= pow(1 - udist[i], M);
+        JumpEta += Eta_Jump_i[i];
+    }
+}
+
 void deIter_Eta_i(){
     Eta = 0;
     for (int i=0;i<dist_len;i++){
         Eta_i[i] /= (1 - udist[i]);
         Eta += Eta_i[i];
+    }
+    return;
+}
+
+void deIter_Jump_Eta_i(int M){
+    JumpEta = 0;
+    for (int i=0;i<dist_len;i++){
+        Eta_Jump_i[i] /= pow(1 - udist[i], M);
+        JumpEta += Eta_Jump_i[i];
     }
     return;
 }
@@ -214,6 +234,7 @@ double f_b[MAXBLOOMSIZE];
 // For a given config, 0th entry in array will store i=sigma-K (i.e., the
 // lowest possible # of entries in the frozen BF
 double FrozenFilterHas_i[MAX_K];
+double FrozenFilterHas_i_Jump[MAX_K];
 // conditional probability that given has i bits set, jumps to or beyond sigma
 // (i.e., freezes).
 double FreezesFrom_i[MAX_K];
@@ -262,9 +283,14 @@ void Iter_f_b(){
         double frozeSum = 0;
         double overallFactor = 0;
         for (int i=0;i<K;i++){
-            Iter_Eta_i();
 
-            FrozenFilterHas_i[i] += f_b[i+Sigma-K] * FreezesFrom_i[i] * Eta;
+            
+            double EtaPlusOne = 0;
+            for (int i=0;i<dist_len;i++){
+                EtaPlusOne += (Eta_i[i] * (1 - udist[i]));
+            }
+            
+            FrozenFilterHas_i[i] += f_b[i+Sigma-K] * FreezesFrom_i[i] * EtaPlusOne;
             if (FrozenFilterHas_i[i] > .00001){
                 printf("FF[%lld] at l=%ld: %.20lf\n", i+Sigma-K, ell, FrozenFilterHas_i[i]);
                 printf("f_b[%lld]: %f, Frfr: %lf\n",i+Sigma-K, f_b[i+Sigma-K],
@@ -274,7 +300,6 @@ void Iter_f_b(){
                 overallFactor += FrozenFilterHas_i[i] * miss;
                 printf("frozeSum: %f, overallFactor: %f\n", frozeSum, overallFactor);
             }
-            deIter_Eta_i();
         }
     }
 /*    for (int b=0; b<= Sigma+K;b++){
@@ -360,6 +385,9 @@ double LowerBound(){
 double JumpAlpha = 0;
 double JumpBeta = 0;
 double jump_ell = 0;
+
+
+
 int num_jumps = 0;
 
 
@@ -374,16 +402,19 @@ void BootJumpAlphaBeta(){
     JumpBeta = Beta;
     // How much "actual" ell increased 
     jump_ell = ell;
+    JumpEta = Eta;
     num_jumps = 0;
     for (int i=0;i<MAXBLOOMSIZE;i++){
         j_b[i] = f_b[i];
     }
+    for (int i = 0; i < dist_len; i++){
+        Eta_Jump_i[i] = Eta_i[i];
+    }    
 
-    
     return;
 }
 
-void Iter_j_b(double short_em_is_one){
+void Iter_j_b(double short_em_is_one, int M){
     // Eta must already be bumped to ellth iteration before calling
     double new_val;
     for (int b=Sigma+K;b>=0;b--){
@@ -400,6 +431,32 @@ void Iter_j_b(double short_em_is_one){
 /*    for (int b=0; b<= Sigma+K;b++){
         fprintf("f[%d]: %lf\n", b, f_b[b]);
         }*/
+
+    //Update frozen filter stuff
+    if (1==1 || j_b[Sigma-K]>0){ // note that latter condition likely sufficient
+        double frozeSum = 0;
+        double overallFactor = 0;
+        for (int i=0;i<K;i++){
+            Iter_Jump_Eta_i(M);
+
+            FrozenFilterHas_i_Jump[i] += j_b[i+Sigma-K] * FreezesFrom_i[i] * JumpEta;
+            //if (FrozenFilterHas_i_Jump[i] > .00001){
+                printf("FF[%lld] at l=%f: %.20lf\n", i+Sigma-K, jump_ell, FrozenFilterHas_i_Jump[i]);
+                printf("f_b[%lld]: %f, Frfr: %lf\n",i+Sigma-K, f_b[i+Sigma-K],
+                       FreezesFrom_i[i]);
+                frozeSum += FrozenFilterHas_i_Jump[i];
+                double miss = 1 - pow(((Sigma-K+i)*1.0)/(BloomSize*1.0),K);
+                overallFactor += FrozenFilterHas_i_Jump[i] * miss;
+                printf("frozeSum: %f, overallFactor: %f\n", frozeSum, overallFactor);
+            //}
+            printf("M: %d\n", M);
+            if (frozeSum != frozeSum){
+                printf("j_b: %f, freeze from i: %f, jump eta: %f\n", j_b[i+Sigma-K], FreezesFrom_i[i], JumpEta);
+                //exit(0);
+            }
+            deIter_Jump_Eta_i(M);
+        }
+    }
     return;
 }
 
@@ -535,7 +592,8 @@ double UpdateJumpAlphaBeta(){
         
     last_M = M_Expects_1(&short_em_is_one);
     JumpBeta += psi * last_M;
-                                                           
+    
+                                       
     // END ALTERNATE:
 #else
     // ORIG:
@@ -545,8 +603,7 @@ double UpdateJumpAlphaBeta(){
     }
     JumpBeta += psi * psi / JumpEta;
 #endif
-    JumpAlpha += psi * (1 - gl);
-    Iter_j_b(short_em_is_one);
+
 #ifndef _NEWVER
     // OLD:
     jump_ell += 1/JumpEta;
@@ -556,7 +613,17 @@ double UpdateJumpAlphaBeta(){
     //fprintf(thefile, "Adding %le to jump_ell\n", last_M);
     //fprintf("Jumped by %lf, maxM jump would be %lf\n", 1/JumpEta,last_M);
 #endif
+    
+    // iter eta_l to eta_(l+M)
+    JumpEta = 0;
+    for (int i=0;i<dist_len;i++){
+        JumpEta += Eta_Jump_i[i] * pow(1-udist[i], last_M);
+    } 
+    JumpAlpha += psi * (1 - gl);
 
+    // iter j(l,b) to j(l+m,b)
+    Iter_j_b(short_em_is_one, last_M);
+    
     // For tracking purposes now
     if (num_jumps < NUM_JUMP_TRACK){
         jump_track_ell[num_jumps] = jump_ell;
