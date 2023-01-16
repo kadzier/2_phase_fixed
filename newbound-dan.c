@@ -10,7 +10,7 @@
 
 #define MAXBLOOMSIZE 500000000
 #define EPSILON 0.00001
-#define ETA_START_JUMP 0.1
+#define ETA_START_JUMP 1e-6
 
 // to terminate early if will take too long
 #define MAX_HOUR_EST_RUN 15
@@ -261,6 +261,7 @@ void Init_f_b(){
 double Alpha = 0;
 double Beta = 0;
 unsigned long int ell = 0;
+unsigned long int lastEll = 0;
 
 
 void Iter_f_b(){
@@ -293,15 +294,24 @@ void Iter_f_b(){
 
             FrozenFilterHas_i[i] += f_b[i+Sigma-K] * FreezesFrom_i[i] * EtaPlusOne;
             if (FrozenFilterHas_i[i] > .00001){
-                printf("FF[%lld] at l=%ld: %.20lf\n", i+Sigma-K, ell, FrozenFilterHas_i[i]);
-                printf("f_b[%lld]: %f, Frfr: %lf\n",i+Sigma-K, f_b[i+Sigma-K],
-                       FreezesFrom_i[i]);
+                //printf("FF[%lld] at l=%ld: %.20lf\n", i+Sigma-K, ell, FrozenFilterHas_i[i]);
+                //printf("f_b[%lld]: %f, Frfr: %lf\n",i+Sigma-K, f_b[i+Sigma-K], FreezesFrom_i[i]);
                 frozeSum += FrozenFilterHas_i[i];
                 double miss = 1 - pow(((Sigma-K+i)*1.0)/(BloomSize*1.0),K);
                 overallFactor += FrozenFilterHas_i[i] * miss;
-                printf("frozeSum: %f, overallFactor: %f\n", frozeSum, overallFactor);
+                //printf("frozeSum: %f, overallFactor: %f\n", frozeSum, overallFactor);
             }
         }
+        int closeToFreeze = 0;
+        for (int i = 0; i < K; i++){
+            if (FrozenFilterHas_i[i] > .00001){
+                 closeToFreeze = 1;
+            }
+        }
+        if (closeToFreeze == 1){
+            printf("l = %ld, eta = %f, frozeSum: %f, overallFactor: %f\n",ell, Eta, frozeSum, overallFactor);
+        }
+
     }
 /*    for (int b=0; b<= Sigma+K;b++){
         fprintf("f[%d]: %lf\n", b, f_b[b]);
@@ -444,21 +454,24 @@ void Iter_j_b(double short_em_is_one, int M){
 
             FrozenFilterHas_i[i] += j_b[i+Sigma-K] * FreezesFrom_i[i];
             if (FrozenFilterHas_i[i] > .00001){
-                printf("FF[%lld] at l=%f: %.20lf\n", i+Sigma-K, jump_ell, FrozenFilterHas_i[i]);
-                printf("f_b[%lld]: %f, Frfr: %lf\n",i+Sigma-K, f_b[i+Sigma-K],
-                       FreezesFrom_i[i]);
+                //printf("FF[%lld] at l=%f: %.20lf\n", i+Sigma-K, jump_ell, FrozenFilterHas_i[i]);
+                //printf("f_b[%lld]: %f, Frfr: %lf\n",i+Sigma-K, f_b[i+Sigma-K], FreezesFrom_i[i]);
                 frozeSum += FrozenFilterHas_i[i];
                 double miss = 1 - pow(((Sigma-K+i)*1.0)/(BloomSize*1.0),K);
                 overallFactor += FrozenFilterHas_i[i] * miss;
-                printf("froze at %d Sum: %f, overallFactor: %f\n", i, frozeSum, overallFactor);
+                //printf("froze at %d Sum: %f, overallFactor: %f\n", i, frozeSum, overallFactor);
             }
-            printf("M: %d\n", M);
+            // printf("M: %d\n", M);
             if (frozeSum != frozeSum){
                 printf("got nan!\n");
                 printf("j_b: %f, freeze from i: %f, jump eta: %f\n", j_b[i+Sigma-K], FreezesFrom_i[i], JumpEta);
                 //exit(0);
             }
             
+        }
+        if (FrozenFilterHas_i[0] > .00001){
+            printf("M: %d\n", M);
+            printf("l = %f, eta = %f, frozeSum: %f, overallFactor: %f\n",jump_ell, JumpEta, frozeSum, overallFactor);
         }
     }
     return;
@@ -694,6 +707,35 @@ int Calculate(input_params p){
     
     Init_Eta_i();
     Init_f_b();
+
+    // int lMax= 1000000000;
+    // int lStart = (Sigma - K) / (K); 
+    // double EP_WONT_FREEZE = .00000001;
+    // for(int l = 1; l <= lMax; l++){
+    //     double gl;
+    //     double psi = PsiAndGetLucky(&gl);
+    //     if (psi < EPSILON){
+    //         break;
+    //     }
+
+    //     double eta = Eta;
+    //     if (eta < EP_WONT_FREEZE){
+    //         printf("never freezes\n");
+    //         break;
+    //     }
+    //     int i = Sigma - K;
+    //     Iter_Eta_i();
+    //     Iter_f_b();
+    //     if (l < lStart){
+    //         if (l % 100 == 0){
+    //             printf("l:%d, psi:%f, eta:%f, lStart:%d \n", l, psi, eta, lStart);
+    //         }
+    //     }
+    //     else{
+    //         printf("l:%d, psi:%f, eta:%f \n", l, psi, eta);
+    //     }
+    // }
+    // exit(0);
     
     struct timeval start, last, now, jump_ell_done;
     gettimeofday(&last, NULL);
@@ -732,12 +774,23 @@ int Calculate(input_params p){
         char printme[1000];
         
         if (now.tv_sec > last.tv_sec || now.tv_sec - start.tv_sec < 10){
+            double deltaSec = now.tv_sec - last.tv_sec;
+            double deltaEll;
+            if (lastEll == 0){
+                deltaEll = 0;
+            }
+            else{
+                deltaEll = ell - lastEll;
+            }
+            lastEll = ell;
+
+            double lPerSec = deltaEll / deltaSec;
             last = now;
             if ((PerformRegGamma==1 || jumping==0) &&
                 (debug_level >=2 || thefile != stdout)){
                 
-                sprintf(printme, "l: %lu, eta: %lf, gamma: %.10lf, l-ratio: %.5lf", ell, Eta, gamma, LowerBound() / gamma);
-                printf("psi ell: %f\n", psi_ell);
+                sprintf(printme, "l: %lu, eta: %lf, gamma: %.10lf, l-ratio: %.5lf, l/sec: %f", ell, Eta, gamma, LowerBound() / gamma, lPerSec);
+                printf("psi ell: %f\n", 1-psi_ell);
                 if (psi_ell > 1-EPSILON){
                     sprintf(printme+strlen(printme), " (V)");
                     if (reg_first_v < 0){
@@ -838,9 +891,15 @@ int Calculate(input_params p){
                 double miss = 1 - pow(((Sigma-K+i)*1.0)/(BloomSize*1.0),K);
                 overallFactor += FrozenFilterHas_i[i] * miss;
             }
-            printf("froze at i sum: %f, overall factor: %f\n", frozeSum, overallFactor);
+            double gl; 
+            double psi = JumpPsiAndGetLucky(&gl);
+            printf("l:%ld, psi:%f, froze at i sum: %f, overall factor: %f\n",ell, psi, frozeSum, overallFactor);
             
-            exit(0);
+            if (stop_jumping == 0){
+                printf("jump finished and stop jumping \n");
+                break;
+            }
+            // exit(0);
         }
     }
     fprintf(thefile, "FINAL: l: %lu, gamma: %.10lf, l-ratio: %.5lf\n",
@@ -871,7 +930,7 @@ int Calculate(input_params p){
     if (jlr < 1){
         fprintf(thefile, "BAD by %le\n", jumpgamma/gamma-1);
         fclose(thefile);
-    return 0;
+        return 0;
     }
     else fprintf(thefile, "GOOD\n");
     if (did_flip==1){
