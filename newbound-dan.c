@@ -154,6 +154,48 @@ double GetLucky(int bits_set){
     return phi_k[_PK(bits_set, bits_set)];
 }
 
+// steady-state probability we have i bits in the filter
+double pi_i[MAXBLOOMSIZE];
+void computeSteadyStateArr(){
+    pi_i[0] = 1;
+    double tot_pi_sum = pi_i[0]; // cumulative sum
+    for (int i = 1; i <= Sigma; i++){
+        double pi_guess = 0;
+        for (int s = 1; s <= K; s++){
+            if (i - s < 0){ // too back far in states 
+                continue;
+            }
+            else{
+                pi_guess += pi_i[i-s] * phi_k[_PK(i-s,i)];
+            }
+        }
+        // pi_guess /= (1 - phi_k[_PK(i,i)]);
+        double pi_den = (1 - phi_k[_PK(i,i)]);
+        pi_i[i] = pi_guess;
+        pi_i[i] = pi_i[i] / pi_den;
+        tot_pi_sum += pi_i[i];
+    }
+
+    // now normalize
+    double cumSum = 0;
+    for (int i = 0; i <= Sigma; i++){
+        pi_i[i] /= tot_pi_sum;
+        printf("pi_%d: %f\n", i, pi_i[i]);
+        cumSum += pi_i[i];
+    }
+    printf("%f\n",cumSum);
+}
+
+// overall false pos rate of filter for a particular M, K, Sigma
+// requires computeSteadyStateArr to have run first 
+double computeFalsePosRate(){
+    double fpRate = 0;
+    for (int i = 0; i <= Sigma; i++){
+        double ep = pow((i*1.0)/BloomSize, K);
+        fpRate += pi_i[i] * ep;
+    }
+    return fpRate;
+}
 
 typedef struct {
     double val[2];
@@ -700,6 +742,12 @@ int Calculate(input_params p){
     fprintf(thefile, "B: %d, S: %lld, K: %lld, dlen: %d, alpha: %lf\n", BloomSize, Sigma, K, dist_len, zipf_alpha);
     ComputePhiK();
     VerifyP_k();
+
+    computeSteadyStateArr();
+    double fpr = computeFalsePosRate();
+    printf("false pos rate: %f\n", fpr);
+    exit(0);
+
     InitLowerValid();
         
 /*    for (int i=0;i<=K+Sigma;i++){
