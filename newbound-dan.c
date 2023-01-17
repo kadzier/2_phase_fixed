@@ -10,7 +10,7 @@
 
 #define MAXBLOOMSIZE 500000000
 #define EPSILON 0.00001
-#define ETA_START_JUMP 1e-6
+#define ETA_START_JUMP 0.001
 
 // to terminate early if will take too long
 #define MAX_HOUR_EST_RUN 15
@@ -109,6 +109,9 @@ void ComputePhiK(){
     phi_var = malloc(sizeof(double) * phi_varsize);
     phi_k = malloc(sizeof(double) * phi_ksize);
     for (int i=0; i< Sigma + K; i++){
+        if (i % 1000000 == 0){
+            printf("%d\n",i);
+        }
         for (int l=0;l<=K;l++){
             for (int j=i;j<=i+l;j++){
                 if (j < i || j-i > l){
@@ -632,10 +635,10 @@ double UpdateJumpAlphaBeta(){
 #endif
     
     // iter eta_l to eta_(l+M)
-    JumpEta = 0;
-    for (int i=0;i<dist_len;i++){
-        JumpEta += Eta_Jump_i[i] * pow(1-udist[i], last_M);
-    } 
+    // JumpEta = 0;
+    // for (int i=0;i<dist_len;i++){
+    //     JumpEta += Eta_Jump_i[i] * pow(1-udist[i], last_M);
+    // } 
     JumpAlpha += psi * (1 - gl);
 
     // iter j(l,b) to j(l+m,b)
