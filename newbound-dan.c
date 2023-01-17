@@ -184,10 +184,10 @@ void computeSteadyStateArr(){
     double cumSum = 0;
     for (int i = 0; i <= Sigma; i++){
         pi_i[i] /= tot_pi_sum;
-        printf("pi_%d: %f\n", i, pi_i[i]);
+        // printf("pi_%d: %f\n", i, pi_i[i]);
         cumSum += pi_i[i];
     }
-    printf("%f\n",cumSum);
+    // printf("%f\n",cumSum);
 }
 
 // overall false pos rate of filter for a particular M, K, Sigma
@@ -749,7 +749,7 @@ int Calculate(input_params p){
 
     long long SigmaLow = -1;
     long long SigmaHi = -1;
-    double targetFPRate = 0.001;
+    double targetFPRate = 0.1;
     double targetFpEpsilon = targetFPRate / 10.0;
 
     ComputePhiK();
