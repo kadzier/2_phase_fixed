@@ -128,6 +128,10 @@ void ComputePhiK(){
     return;
 }
 
+void FreePhik(){
+    free(phi_k);
+}
+
 void VerifyP_k(){
     for (int i=0;i<Sigma+K;i++){
         double  totprob = 0;
@@ -740,12 +744,52 @@ int Calculate(input_params p){
     GenZipf(zipf_alpha);
     
     fprintf(thefile, "B: %d, S: %lld, K: %lld, dlen: %d, alpha: %lf\n", BloomSize, Sigma, K, dist_len, zipf_alpha);
+    
+    
+
+    long long SigmaLow = -1;
+    long long SigmaHi = -1;
+    double targetFPRate = 0.001;
+    double targetFpEpsilon = targetFPRate / 10.0;
+
     ComputePhiK();
     VerifyP_k();
-
+    
     computeSteadyStateArr();
     double fpr = computeFalsePosRate();
-    printf("false pos rate: %f\n", fpr);
+
+    while(fabs(fpr - targetFPRate) > targetFpEpsilon){
+        printf("new sigma: %lld\n", Sigma);
+        if (fpr > targetFPRate + targetFpEpsilon){ // too big, make smaller by reducing Sigma
+            if (SigmaLow == -1){
+                SigmaLow = 0;
+            }
+            SigmaHi = Sigma;
+            Sigma = ceil((SigmaLow + SigmaHi) / 2);
+        }
+        else if (fpr < (targetFPRate - targetFpEpsilon)) {
+            if (SigmaHi == -1) {
+                SigmaHi = BloomSize;
+            }
+            SigmaLow = Sigma;
+
+            Sigma = ceil((SigmaLow + SigmaHi) / 2);
+        }
+
+        if (llabs(SigmaLow - SigmaHi) <= 1){
+            break;
+        }
+
+        FreePhik();
+        ComputePhiK();
+        VerifyP_k();
+        
+        computeSteadyStateArr();
+        fpr = computeFalsePosRate();
+
+    }
+    
+    printf("final sigma: %lld, false pos rate: %f\n",Sigma, fpr);
     exit(0);
 
     InitLowerValid();
