@@ -201,6 +201,44 @@ double computeFalsePosRate(){
     return fpRate;
 }
 
+long long findOptimalSigma(double targetFPRate, double targetFpEpsilon, double fpr){
+
+    long long SigmaLow = -1;
+    long long SigmaHi = -1;
+
+    while(fabs(fpr - targetFPRate) > targetFpEpsilon){
+        printf("new sigma: %lld\n", Sigma);
+        if (fpr > targetFPRate + targetFpEpsilon){ // too big, make smaller by reducing Sigma
+            if (SigmaLow == -1){
+                SigmaLow = 0;
+            }
+            SigmaHi = Sigma;
+            Sigma = ceil((SigmaLow + SigmaHi) / 2);
+        }
+        else if (fpr < (targetFPRate - targetFpEpsilon)) {
+            if (SigmaHi == -1) {
+                SigmaHi = BloomSize;
+            }
+            SigmaLow = Sigma;
+
+            Sigma = ceil((SigmaLow + SigmaHi) / 2);
+        }
+
+        if (llabs(SigmaLow - SigmaHi) <= 1){
+            break;
+        }
+
+        FreePhik();
+        ComputePhiK();
+        VerifyP_k();
+        
+        computeSteadyStateArr();
+        fpr = computeFalsePosRate();
+
+    }
+    return Sigma;
+}
+
 typedef struct {
     double val[2];
 } SwapDouble;
@@ -747,9 +785,8 @@ int Calculate(input_params p){
     
     
 
-    long long SigmaLow = -1;
-    long long SigmaHi = -1;
-    double targetFPRate = 0.1;
+    
+    double targetFPRate = 0.001;
     double targetFpEpsilon = targetFPRate / 10.0;
 
     ComputePhiK();
@@ -758,38 +795,11 @@ int Calculate(input_params p){
     computeSteadyStateArr();
     double fpr = computeFalsePosRate();
 
-    while(fabs(fpr - targetFPRate) > targetFpEpsilon){
-        printf("new sigma: %lld\n", Sigma);
-        if (fpr > targetFPRate + targetFpEpsilon){ // too big, make smaller by reducing Sigma
-            if (SigmaLow == -1){
-                SigmaLow = 0;
-            }
-            SigmaHi = Sigma;
-            Sigma = ceil((SigmaLow + SigmaHi) / 2);
-        }
-        else if (fpr < (targetFPRate - targetFpEpsilon)) {
-            if (SigmaHi == -1) {
-                SigmaHi = BloomSize;
-            }
-            SigmaLow = Sigma;
-
-            Sigma = ceil((SigmaLow + SigmaHi) / 2);
-        }
-
-        if (llabs(SigmaLow - SigmaHi) <= 1){
-            break;
-        }
-
-        FreePhik();
-        ComputePhiK();
-        VerifyP_k();
-        
-        computeSteadyStateArr();
-        fpr = computeFalsePosRate();
-
-    }
+    // finds the best sigma for the desired fpr  
+    long long optSigma = findOptimalSigma(targetFPRate, targetFpEpsilon, fpr);
     
-    printf("final sigma: %lld, false pos rate: %f\n",Sigma, fpr);
+    fpr = computeFalsePosRate();
+    printf("final sigma: %lld, false pos rate: %f\n",optSigma, fpr);
     exit(0);
 
     InitLowerValid();
