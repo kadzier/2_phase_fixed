@@ -72,6 +72,11 @@ int _PV(int l,int i,int j){
 // for phi_k array (i.e., where l=k)
 int _PK(int i,int j){return  i*(K+1)+(j-i);}
 
+// # for psi(l,n) array, where psi = 0 for l < n
+int _PSIK(int l, int n){
+    return l*(l+1)/2 + n;
+}
+
 double GenPV(int l, int i, int j){
     if (l==0){
         if (i==j){
@@ -199,6 +204,111 @@ double computeFalsePosRate(){
         fpRate += pi_i[i] * ep;
     }
     return fpRate;
+}
+
+// psi_k(l,n) array- probabilty n messages occupy l bits
+// requires phi_k array to be computed first 
+double* psi_k;
+double PSI_EPSILON = 0;
+void ComputePsiK(){
+    long long psi_ksize = ceil((Sigma+1)*(Sigma+1)/2) + Sigma + 1;
+    printf("malloc psi_k size %lld\n", psi_ksize);
+    psi_k = malloc(sizeof(double) * psi_ksize);
+    
+    // loop through number of messages 
+    for (int n = 0; n <= Sigma; n++) {
+        // loop through number of bits, starting from the number of messages
+
+        double l_col_sum = 0; // for normalizing-- take sum across l for every n
+        int isLCutoff = 0; // boolean for cutoff due to small probabilities- 0 or 1 
+        int lCutoffVal = Sigma;
+        for (int l = n; l <= Sigma; l++){
+            // printf("computing (%d,%d)\n", l, n);
+            // base case for n = 0 
+            if (n == 0){
+                // psi(0,0) = 1; 0 otherwise
+                if (l == 0){
+                    psi_k[_PSIK(l,n)] = 1;
+                }
+                else{
+                    psi_k[_PSIK(l,n)] = 0;
+                }
+                l_col_sum += psi_k[_PSIK(l,n)];
+                continue;
+            }
+            // base case for l > kn
+            else if (l > K * n){
+                psi_k[_PSIK(l,n)] = 0;
+                l_col_sum += 0;
+                continue;
+            }
+            // IF WE'RE PAST LCUTOFF- ASSUME PROBABILITY IS ZERO!
+            else if (isLCutoff == 1){
+                psi_k[_PSIK(l,n)] = 0;
+                l_col_sum += 0;
+                continue;
+            }
+            // recursive case 
+            else{
+
+                double psiSum = 0;
+                
+                for (int j = 1; j <= K; j++){
+                    
+                    if (l-j >= 0){ // we can still go back this far in bits
+                        
+                        psiSum += psi_k[_PSIK(l-j,n-1)] * (phi_k[_PK(l-j,l)]) / (1 - phi_k[_PK(l-j,l-j)]);
+                        
+                    }
+                    else{ // not enough bits to go this far back 
+                        break;
+                    }
+                }
+
+                // printf("ind: %d\n", _PSIK(l,n));
+                psi_k[_PSIK(l,n)] = psiSum;
+
+                l_col_sum += psi_k[_PSIK(l,n)];
+
+                
+                // determine if we cut off l 
+                // probability should be decreasing with l in the first place, and small
+                if ((psi_k[_PSIK(l,n)] < psi_k[_PSIK(l-1,n)]) && psi_k[_PSIK(l,n)] < PSI_EPSILON){
+                    isLCutoff = 1;
+                    lCutoffVal = l;
+                }
+                continue;
+            }
+        }
+
+        // normalize 
+        // printf("n=%d\n",n);
+        double normalSum = 0;
+        for (int l = n; l <= lCutoffVal; l++){
+            
+            // very improbable cases (n close to Sigma)
+            // in these cases, l_column_sum = 0 
+            // then set psi(Sigma, n) = 1 and the rest 0 
+            if (l_col_sum == 0) {
+                if (psi_k[_PSIK(l,n)] != 0 && l != Sigma) { // something went wrong somewhere
+                    printf("fatal error-- denominator in normalized phi l,n = 0!\n");
+                    printf("l, n: %d, %d\n", l, n);
+                    exit(0);
+                }
+                else{
+                    psi_k[_PSIK(Sigma,n)] = 1;
+                    normalSum = 1;
+                }
+            }
+            else{
+                psi_k[_PSIK(l,n)] /= l_col_sum;
+                normalSum += psi_k[_PSIK(l,n)];
+            }
+            // printf("psi(%d,%d) = %f\n", l, n, psi_k[_PSIK(l,n)]);
+        }
+        // printf("sum: %f\n", normalSum);
+        // printf("---\n");
+    }
 }
 
 long long findOptimalSigma(double targetFPRate, double targetFpEpsilon, double fpr){
@@ -786,20 +896,33 @@ int Calculate(input_params p){
     
 
     
-    double targetFPRate = 0.001;
+    double targetFPRate = 0.0001;
     double targetFpEpsilon = targetFPRate / 10.0;
 
     ComputePhiK();
     VerifyP_k();
-    
-    computeSteadyStateArr();
-    double fpr = computeFalsePosRate();
 
-    // finds the best sigma for the desired fpr  
-    long long optSigma = findOptimalSigma(targetFPRate, targetFpEpsilon, fpr);
+    ComputePsiK();
+
+    for (int i = 5000; i <= Sigma; i++){
+        if (psi_k[_PSIK(i,5000)] > .00001){
+            printf("psi_k(%d,%d)=%f\n",i,5000, psi_k[_PSIK(i,5000)]);
+        }
+    }
+    exit(0);
+
     
-    fpr = computeFalsePosRate();
-    printf("final sigma: %lld, false pos rate: %f\n",optSigma, fpr);
+    
+    // compute pi_i arr-- steady-state probabilty of i bits in filter
+    computeSteadyStateArr();
+    // overall false positive rate for filter at default Sigma
+    double fpr = computeFalsePosRate(); 
+    // finds the best Sigma for the desired fpr  
+    long long optSigma = findOptimalSigma(targetFPRate, targetFpEpsilon, fpr);
+    fpr = computeFalsePosRate(); // at optimal sigma
+    
+    printf("final sigma: %lld, false pos rate: %f\n",Sigma, fpr);
+
     exit(0);
 
     InitLowerValid();
