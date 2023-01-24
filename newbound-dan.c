@@ -209,9 +209,10 @@ double computeFalsePosRate(){
 // psi_k(l,n) array- probabilty n messages occupy l bits
 // requires phi_k array to be computed first 
 double* psi_k;
-double PSI_EPSILON = 1e-6;
+double PSI_EPSILON = 0;
+long long psi_ksize;
 void ComputePsiK(){
-    long long psi_ksize = ceil((Sigma+1)*(Sigma+1)/2) + Sigma + 1;
+    psi_ksize = ceil((Sigma+1)*(Sigma+1)/2) + Sigma + 1;
     printf("malloc psi_k size %lld\n", psi_ksize);
     psi_k = malloc(sizeof(double) * psi_ksize);
     
@@ -877,9 +878,77 @@ double HoursLeftEstimate(struct timeval start){
     
     
 
+double ProbElementICounted(int i, int pins){
+    return 1-pow(1-udist[i], pins);
+}
+
+// # elements picked from min_idx to max_idx - 1
+double ExpectedElementsPicked(int min_idx, int max_idx, int pins){
+    double Eval = 0;
+    for (int i=min_idx;i<max_idx;i++){
+        Eval += ProbElementICounted(i,pins);
+    }
+    return Eval;
+}
+        
+
+// How many pins dropped over entire dist so that K items sampled
+// find M 
+int prevPins = 0;
+int FindPinsGivesK(int k, int dist_len){
+    int pins=k;
+    int stopFind = 0; // bool for when we stop
+    int pinsLo = k;
+    int pinsHi = -1;
+    while (stopFind == 0){
+        printf("pin counter = %d\n", pins);
+        int m = ExpectedElementsPicked(0,dist_len,pins);
+        if (m == k){
+            stopFind = 1;
+        }
+        else if (m > k){ 
+            pinsHi = pins;
+            pins -= (pinsHi - pinsLo) / 2;
+            if (pins == pinsHi){
+                stopFind = 1;
+            }
+        }
+        else if (m < k){ 
+            if (pinsHi == -1){ // haven't gone over yet-- keep doubling pins
+                pinsLo = pins;
+                pins *= 2;
+            }
+            else{ 
+                pinsLo = pins;
+                pins += (pinsHi - pinsLo) / 2;
+                if (pins == pinsLo){
+                    stopFind = 1;
+                }
+            }
+        }
+    }
+    
+    return pins;
+
+}
+
+// vi estimate 
+double FNegWPins(int pins, int dist_len){ 
+    double fneg = 0;
+    for (int i=0;i<dist_len;i++){
+        fneg += udist[i] * (1-ProbElementICounted(i, pins));
+    }
+    return fneg;
+}
+
+double get_lucky(int i){
+    double expBits = BloomSize * (1 - pow((BloomSize-1)/(BloomSize*1.0),K*i));
+    double getLuckyProb = pow((expBits) / (BloomSize*1.0), K);
+    return getLuckyProb;
+}
 
 
-
+double viArr[MAXBLOOMSIZE];
 int Calculate(input_params p){
     double hrs_estimate=-1;
     double delta_estimate;
@@ -899,6 +968,65 @@ int Calculate(input_params p){
     fprintf(thefile, "B: %d, S: %lld, K: %lld, dlen: %d, alpha: %lf\n", BloomSize, Sigma, K, dist_len, zipf_alpha);
     
     
+    clock_t startK = clock();
+
+    
+    for (int k = 0; k < dist_len; k++){
+        printf("k=%d\n",k);
+        int pins = FindPinsGivesK(k, dist_len);
+        printf("pins = %d\n", pins);
+        double viEstimate = FNegWPins(pins, dist_len);
+        printf("est = %f\n", viEstimate);
+        viArr[k] = viEstimate;
+        if (k % 100 == 0) {
+            printf("k=%d %lf\n",k,viArr[k]);
+            clock_t endK = clock();
+            double deltaS = (double)(endK - startK) / (CLOCKS_PER_SEC); 
+            printf("k per second: %f\n", 100.0 / deltaS);
+            startK = clock();
+        }
+    }
+    // false negative rate 
+
+    // get Pi_i's
+    int maxMsgs = 833946; // wikipedia model
+    double pr = 1;
+    double Pi_i[maxMsgs+1];
+
+    // Pi i guess values
+    Pi_i[0] = 1;
+    double sumPi_i = 1;
+    
+    for (int i = 1; i <= maxMsgs; i++){
+        double numerator = Pi_i[i-1] * ((1 - pr) + pr*viArr[i-1]) * (1 - get_lucky(i-1));
+        double denominator = 1 - (pr*(1-viArr[i]) + (pr*viArr[i] + (1-pr))*get_lucky(i));
+        Pi_i[i] = numerator / denominator;
+        sumPi_i += Pi_i[i];
+        printf("pr: %f, v_%d:%f, v_%d:%f, gl_%d:%f, gl_%d:%f\n", pr, i-1, viArr[i-1], i, viArr[i], i-1, get_lucky(i-1), i, get_lucky(i));
+        printf("numerator:%f, denominator: %f\n", numerator, denominator);
+
+    }
+    // exit(0);
+    // now normalize them
+    for (int i = 0; i <= maxMsgs; i++){
+        Pi_i[i] /= sumPi_i;
+    }
+
+    // print them out 
+    double probsum = 0;
+    for (int i = 0; i <= maxMsgs; i++){
+        printf("Pi_%d: %f\n", i, Pi_i[i]);
+        probsum += Pi_i[i];
+    }
+    printf("sum: %f\n", probsum);
+
+    // false negative approximation
+    double fnProb = 0;
+    for (int i = 0; i <= maxMsgs; i++){
+        fnProb += Pi_i[i] * (1 - get_lucky(i)) * pr * viArr[i];
+    }
+    printf("fn prob approx: %f\n", fnProb);
+    exit(0);
 
     
     double targetFPRate = 0.0001;
@@ -907,34 +1035,29 @@ int Calculate(input_params p){
     ComputePhiK();
     VerifyP_k();
 
-    ComputePsiK();
+    // ComputePsiK();
 
-    printf("%f\n",psi_k[_PSIK(8,4)]);
+    // int nMsgs = 20;
+    // double sum = 0;
+    // for (int l = nMsgs; l <= Sigma; l++){
+    //     printf("psi(%d,%d): %f\n",l,nMsgs, psi_k[_PSIK(l,nMsgs)]);
+    // }
+
     // exit(0);
-    double sum = 0;
-    for (int i = 4; i <= Sigma; i++){
-
-        if (psi_k[_PSIK(i,4)] > .00001){
-            sum += psi_k[_PSIK(i,4)];
-            printf("psi_k(%d,%d)=%f\n",i,4, psi_k[_PSIK(i,4)]);
-        }
-    }
-    printf("sum:%f\n",sum);
-    exit(0);
 
     
     
     // compute pi_i arr-- steady-state probabilty of i bits in filter
-    computeSteadyStateArr();
+    // computeSteadyStateArr();
     // overall false positive rate for filter at default Sigma
-    double fpr = computeFalsePosRate(); 
+    // double fpr = computeFalsePosRate(); 
     // finds the best Sigma for the desired fpr  
-    long long optSigma = findOptimalSigma(targetFPRate, targetFpEpsilon, fpr);
-    fpr = computeFalsePosRate(); // at optimal sigma
+    // long long optSigma = findOptimalSigma(targetFPRate, targetFpEpsilon, fpr);
+    // fpr = computeFalsePosRate(); // at optimal sigma
     
-    printf("final sigma: %lld, false pos rate: %f\n",Sigma, fpr);
+    // printf("final sigma: %lld, false pos rate: %f\n",Sigma, fpr);
 
-    exit(0);
+    // exit(0);
 
     InitLowerValid();
         
