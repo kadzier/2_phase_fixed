@@ -963,11 +963,14 @@ int Calculate(input_params p){
         printf("Will use filename %s\n", p.filename);
         thefile = fopen(p.filename, "wt");
     }
+
+    clock_t startProg = clock();
+
     GenZipf(zipf_alpha);
     
     fprintf(thefile, "B: %d, S: %lld, K: %lld, dlen: %d, alpha: %lf\n", BloomSize, Sigma, K, dist_len, zipf_alpha);
     
-    
+
     clock_t startK = clock();
 
     
@@ -978,18 +981,19 @@ int Calculate(input_params p){
         double viEstimate = FNegWPins(pins, dist_len);
         //printf("est = %f\n", viEstimate);
         viArr[k] = viEstimate;
-        if (k % 100 == 0) {
+        int interval = 1;
+        if (k % interval == 0) {
             printf("k=%d %lf\n",k,viArr[k]);
             clock_t endK = clock();
             double deltaS = (double)(endK - startK) / (CLOCKS_PER_SEC); 
-            printf("k per second: %f\n", 100.0 / deltaS);
+            printf("k per second: %f\n", (interval*1.0) / deltaS);
             startK = clock();
         }
     }
     // false negative rate 
 
     // get Pi_i's
-    int maxMsgs = 833946; // wikipedia model
+    int maxMsgs = 8340; // wikipedia model
     double pr = 1;
     double Pi_i[maxMsgs+1];
 
@@ -1026,6 +1030,10 @@ int Calculate(input_params p){
         fnProb += Pi_i[i] * (1 - get_lucky(i)) * pr * viArr[i];
     }
     printf("fn prob approx: %f\n", fnProb);
+
+    clock_t endProg = clock();
+    double timeProg = (double)(endProg - startProg) / (CLOCKS_PER_SEC); 
+    printf("program time: %f seconds\n", timeProg);
     exit(0);
 
     
