@@ -896,12 +896,12 @@ double ExpectedElementsPicked(int min_idx, int max_idx, int pins){
 // find M 
 int prevPins = 0;
 int FindPinsGivesK(int k, int dist_len){
-    int pins=k;
+    int pins=prevPins;
     int stopFind = 0; // bool for when we stop
-    int pinsLo = k;
+    int pinsLo = prevPins;
     int pinsHi = -1;
     while (stopFind == 0){
-        printf("pin counter = %d\n", pins);
+        // printf("pin counter = %d\n", pins);
         int m = ExpectedElementsPicked(0,dist_len,pins);
         if (m == k){
             stopFind = 1;
@@ -927,7 +927,7 @@ int FindPinsGivesK(int k, int dist_len){
             }
         }
     }
-    
+    prevPins = pins + 1;
     return pins;
 
 }
@@ -972,11 +972,11 @@ int Calculate(input_params p){
 
     
     for (int k = 0; k < dist_len; k++){
-        printf("k=%d\n",k);
+        //printf("k=%d\n",k);
         int pins = FindPinsGivesK(k, dist_len);
-        printf("pins = %d\n", pins);
+        //printf("pins = %d\n", pins);
         double viEstimate = FNegWPins(pins, dist_len);
-        printf("est = %f\n", viEstimate);
+        //printf("est = %f\n", viEstimate);
         viArr[k] = viEstimate;
         if (k % 100 == 0) {
             printf("k=%d %lf\n",k,viArr[k]);
