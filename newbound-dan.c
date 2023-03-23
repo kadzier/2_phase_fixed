@@ -4,6 +4,7 @@
 //#include "index.c"
 #include "zipf.c"
 #include "index.c"
+#include "math.h"
 #include <sys/time.h>
 
 #define _NEWVER
@@ -19,6 +20,8 @@
 #define EST_ALPHA 0.9
 #define DELTA_MAX 0.1
 #define MAX_K 1000
+
+double pRepeat = 0.5;
 
 FILE *thefile;
 
@@ -115,7 +118,7 @@ void ComputePhiK(){
     phi_k = malloc(sizeof(double) * phi_ksize);
     for (int i=0; i< Sigma + K; i++){
         if (i % 1000000 == 0){
-            printf("%d\n",i);
+            //printf("%d\n",i);
         }
         for (int l=0;l<=K;l++){
             for (int j=i;j<=i+l;j++){
@@ -204,6 +207,22 @@ double computeFalsePosRate(){
         fpRate += pi_i[i] * ep;
     }
     return fpRate;
+}
+
+// generate plot file of an [x, y] (int, double) array for python
+// output in graph_output.txt
+void generatePlotFile(int* x, int xLen, double* y, int yLen){
+    printf("xlen:%d,ylen:%d\n",xLen,yLen);
+    FILE* fp = fopen("graph_output.txt","w");
+    fprintf(fp,"%d\n",xLen);
+    for (int i = 0; i < xLen; i++){
+        fprintf(fp,"%d\n",x[i]);
+    }
+    fprintf(fp,"%d\n",yLen);
+    for (int i = 0; i < yLen; i++){
+        fprintf(fp,"%f\n",y[i]);
+    }
+    fclose(fp);
 }
 
 // psi_k(l,n) array- probabilty n messages occupy l bits
@@ -472,10 +491,10 @@ void Iter_f_b(){
     // Eta must already be bumped to ellth iteration before calling
     double new_val;
     for (int b=Sigma+K;b>=0;b--){
-        new_val = (1-Eta) * f_b[b];
+        new_val = pRepeat * (1-Eta) * f_b[b];
         for (int i=0; i<=K; i++){
             //fprintf("b-i is %d\n", b-i);
-            new_val += Eta * f_b[b-i] * phi_k[_PK(b-i,b)];
+            new_val += (1 - pRepeat + pRepeat*Eta)  * f_b[b-i] * phi_k[_PK(b-i,b)];
             if (b-i==0){
                 break;
             }
@@ -545,7 +564,7 @@ double UpdateAlphaBeta(){ // return gamma
     double psi;
     psi = PsiAndGetLucky(&gl);
 //    fprintf(thefile, "psi: %lf, gl: %lf\n", psi, gl);
-    Alpha += psi * Eta * (1 - gl);
+    Alpha += psi * pRepeat * Eta * (1 - gl);
     Beta += psi;
 
     // Now prep for ell++
@@ -878,12 +897,12 @@ double HoursLeftEstimate(struct timeval start){
     
     
 
-double ProbElementICounted(int i, int pins){
+double ProbElementICounted(int i, long pins){
     return 1-pow(1-udist[i], pins);
 }
 
 // # elements picked from min_idx to max_idx - 1
-double ExpectedElementsPicked(int min_idx, int max_idx, int pins){
+double ExpectedElementsPicked(int min_idx, int max_idx, long pins){
     double Eval = 0;
     for (int i=min_idx;i<max_idx;i++){
         Eval += ProbElementICounted(i,pins);
@@ -894,15 +913,17 @@ double ExpectedElementsPicked(int min_idx, int max_idx, int pins){
 
 // How many pins dropped over entire dist so that K items sampled
 // find M 
-int prevPins = 0;
-int FindPinsGivesK(int k, int dist_len){
-    int pins=prevPins;
+long prevPins = 0;
+long FindPinsGivesK(int k, int dist_len){
+    long pins=prevPins;
     int stopFind = 0; // bool for when we stop
-    int pinsLo = prevPins;
-    int pinsHi = -1;
+    long pinsLo = prevPins;
+    long pinsHi = -1;
     while (stopFind == 0){
+        // printf("pins: %ld\n", pins);
         // printf("pin counter = %d\n", pins);
         int m = ExpectedElementsPicked(0,dist_len,pins);
+        printf("m, pins: %d, %ld\n",m, pins);
         if (m == k){
             stopFind = 1;
         }
@@ -915,8 +936,15 @@ int FindPinsGivesK(int k, int dist_len){
         }
         else if (m < k){ 
             if (pinsHi == -1){ // haven't gone over yet-- keep doubling pins
-                pinsLo = pins;
-                pins *= 2;
+                if (pins > 0){
+                    pinsLo = pins;
+                    pins *= 2;
+                }
+                else{ 
+                    pins = 1;
+                    pinsLo = pins;
+                    pins *= 2;
+                }
             }
             else{ 
                 pinsLo = pins;
@@ -927,17 +955,61 @@ int FindPinsGivesK(int k, int dist_len){
             }
         }
     }
+    
     prevPins = pins + 1;
+
     return pins;
 
 }
+// old version find pins gives k
+
+// long FindPinsGivesK(int k, int dist_len){
+//     long pins=k;
+//     long stopFind = 0; // bool for when we stop
+//     long pinsLo = k;
+//     long pinsHi = -1;
+//     while (stopFind == 0){
+//         int m = ExpectedElementsPicked(0,dist_len,pins);
+//         //printf("m, pins: %d, %ld\n", m, pins);
+//         if (m == k){
+//             stopFind = 1;
+//         }
+//         else if (m > k){ 
+//             pinsHi = pins;
+//             pins -= (pinsHi - pinsLo) / 2;
+//             if (pins == pinsHi){
+//                 stopFind = 1;
+//             }
+//         }
+//         else if (m < k){ 
+//             if (pinsHi == -1){ // haven't gone over yet-- keep doubling pins
+//                 pinsLo = pins;
+//                 pins *= 2;
+//             }
+//             else{ 
+//                 pinsLo = pins;
+//                 pins += (pinsHi - pinsLo) / 2;
+//                 if (pins == pinsLo){
+//                     stopFind = 1;
+//                 }
+//             }
+//         }
+//     }
+    
+    
+//     return pins;
+
+// }
+//
 
 // vi estimate 
-double FNegWPins(int pins, int dist_len){ 
+double FNegWPins(long pins, int dist_len){ 
     double fneg = 0;
     for (int i=0;i<dist_len;i++){
         fneg += udist[i] * (1-ProbElementICounted(i, pins));
+        //printf("pins:%ld, prob element %d counted:%f\n", pins, i,ProbElementICounted(i, pins));
     }
+
     return fneg;
 }
 
@@ -949,6 +1021,7 @@ double get_lucky(int i){
 
 
 double viArr[MAXBLOOMSIZE];
+double Pi_i[MAXBLOOMSIZE];
 int Calculate(input_params p){
     double hrs_estimate=-1;
     double delta_estimate;
@@ -973,75 +1046,183 @@ int Calculate(input_params p){
 
     clock_t startK = clock();
 
-    
-    for (int k = 0; k < dist_len; k++){
-        //printf("k=%d\n",k);
-        int pins = FindPinsGivesK(k, dist_len);
-        //printf("pins = %d\n", pins);
-        double viEstimate = FNegWPins(pins, dist_len);
-        //printf("est = %f\n", viEstimate);
-        viArr[k] = viEstimate;
-        int interval = 1;
-        if (k % interval == 0) {
-            printf("k=%d %lf\n",k,viArr[k]);
-            clock_t endK = clock();
-            double deltaS = (double)(endK - startK) / (CLOCKS_PER_SEC); 
-            printf("k per second: %f\n", (interval*1.0) / deltaS);
-            startK = clock();
+
+    int numSigmaVals = 10;
+    int numFpRates = numSigmaVals;
+
+    int numKVals = 10;
+    int kArr[10] = {2, 4, 6, 8, 10, 12, 14, 16, 18, 20};
+
+    char pinFileStr[1024];
+    sprintf(pinFileStr, "pin_fp_curves_%d_%.1f", BloomSize, zipf_alpha);
+    printf("%s\n",pinFileStr);
+    FILE* pinFile = fopen(pinFileStr,"w");
+
+    // fill in sigma arr
+    int SigmaArr[10] = {249, 374, 420, 444, 457, 467, 471, 474, 480, 480};
+
+    char str[] = "/Users/kahlildozier/Desktop/research/owl/Owl/simulator_owl/bound_results/opt_points_M=%d_s=%.1f.txt";
+    char str2[1000];
+    int Mstr = BloomSize;
+    float alphaStr = zipf_alpha;
+    sprintf(str2,str,Mstr,alphaStr);
+    printf("%s\n",str2);
+
+    FILE* pFile = fopen(str2, "r");
+    if (pFile == NULL){
+        printf("error reading file!\n");
+        exit(0);
+    }
+    int nLine = 1;
+    int sigmasFilled = 0;
+    char* line = NULL;
+    size_t len = 0;
+    while (getline(&line, &len, pFile) != -1) {
+        if (nLine > 3){
+            if (nLine % 2 == 0){
+                float lineFloat = atof(line);
+                int lineInt = (int)lineFloat;
+                printf("sigma: %d\n", lineInt);
+                SigmaArr[sigmasFilled] = lineInt;
+                sigmasFilled++;
+            }
         }
+        printf("line %d\n", nLine);
+        nLine ++;
     }
-    // false negative rate 
+    printf("end of file\n");
+    fclose(pFile);
+    if (line){
+        free(line);
+    }
 
-    // get Pi_i's
-    int maxMsgs = 8340; // wikipedia model
-    double pr = 1;
-    double Pi_i[maxMsgs+1];
+    for (int ki = 0; ki < 10; ki++) {
+        
+        
 
-    // Pi i guess values
-    Pi_i[0] = 1;
-    double sumPi_i = 1;
+        
+        double finalFnProbs[10];
+        for (int s = 0; s < numSigmaVals; s++){
+            Sigma = SigmaArr[s];
+            K = kArr[s];
+            int kSkipInterval = 1;
+            prevPins = 0;
+            for (int k = 0; k < dist_len; k+= kSkipInterval){
+                //printf("k=%d\n",k);
+                long lastPinsVal = prevPins;
+                long pins = FindPinsGivesK(k, dist_len);
+                //printf("pins = %ld\n", pins);
+                double viEstimate = FNegWPins(pins, dist_len);
+                //printf("est = %f\n", viEstimate);
+                viArr[k] = viEstimate;
+                //printf("vi estimate =%f\n", viEstimate);
+                //exit(0);
+                int interval = kSkipInterval;
+                if (k % interval == 0) {
+                    //printf("k=%d, pins=%ld, vi=%lf, deltaPins=%ld, deltaVi=%lf, lambda:%f\n",k, pins, viArr[k], pins-lastPinsVal + 1, viArr[k] - viArr[k-1], -log(viArr[k]));
+                    clock_t endK = clock();
+                    double deltaS = (double)(endK - startK) / (CLOCKS_PER_SEC); 
+                    //printf("k per second: %f\n", (interval*1.0) / deltaS);
+                    startK = clock();
+                }
+                
+            }
+            // exit(0);
+            for (int i = 0; i < dist_len; i++){
+                //printf("viArr %d: %f\n", i, viArr[i]);
+            }
+            //exit(0);
+
+            // interpolate vi 
+            // for (int i = 0; i < dist_len - kSkipInterval; i+= kSkipInterval){
+            //     printf("i: %d\n", i);
+            //     double vStart = viArr[i];
+            //     double vEnd = viArr[i + kSkipInterval];
+            //     double slope = (vEnd - vStart)/(kSkipInterval);
+            //     printf("vstart: %f, vend: %f, slope: %f\n", vStart, vEnd, slope);
+            //     for (int j = i+1; j < i+kSkipInterval; j++){
+            //         //printf("j:%d\n",j);
+            //         viArr[j] = viArr[j-1] + slope;
+            //         //printf("v%d: %f\n", j, viArr[j]);
+            //     }
+            // }
+            // printf("[ ");
+            // for (int i = 0; i < dist_len-1; i++){
+            //     printf("%f,", viArr[i]);
+            // }
+            // printf("%f]\n",viArr[dist_len]);
+            // exit(0);
+            // false negative rate 
+
+            // get Pi_i's
+            //int maxMsgs = Sigma / K; //n low
+            long maxMsgs = -((1.0*BloomSize)/K) * log(1 - ((Sigma*1.0) / (BloomSize))); // n hi
+            printf("K:%d\n",K);
+            printf("-m/k:%f\n",-((1.0*BloomSize)/K));
+            printf("max msgs: %ld\n", maxMsgs);
+            double pr = 0.5;
+            // Pi i guess values
+            Pi_i[0] = 1;
+            double sumPi_i = 1;
+            
+            for (int i = 1; i <= maxMsgs; i++){
+                double numerator = Pi_i[i-1] * ((1 - pr) + pr*viArr[i-1]) * (1 - get_lucky(i-1));
+                double denominator = 1 - (pr*(1-viArr[i]) + (pr*viArr[i] + (1-pr))*get_lucky(i));
+                Pi_i[i] = numerator / denominator;
+                sumPi_i += Pi_i[i];
+                //printf("pr: %f, v_%d:%f, v_%d:%f, gl_%d:%f, gl_%d:%f\n", pr, i-1, viArr[i-1], i, viArr[i], i-1, get_lucky(i-1), i, get_lucky(i));
+                //printf("numerator:%f, denominator: %f\n", numerator, denominator);
+
+            }
+            // exit(0);
+            // now normalize them
+            for (int i = 0; i <= maxMsgs; i++){
+                Pi_i[i] /= sumPi_i;
+            }
+
+            // print them out 
+            double probsum = 0;
+            for (int i = 0; i <= maxMsgs; i++){
+                //printf("Pi_%d: %f\n", i, Pi_i[i]);
+                probsum += Pi_i[i];
+            }
+            //printf("sum: %f\n", probsum);
+            // exit(0);
+            // false negative approximation
+            double fnProb = 0;
+            for (int i = 0; i <= maxMsgs; i++){
+                fnProb += Pi_i[i] * (1 - get_lucky(i)) * pr * viArr[i];
+            }
+
+            //double twoPhaseFactor = BloomSize * (1 - exp(-K*maxMsgs/BloomSize));
+            printf("fn prob approx: %f\n", fnProb);
+            finalFnProbs[s] = fnProb;
+            //printf("two phase factor:%f\n", twoPhaseFactor);
+
+            clock_t endProg = clock();
+            double timeProg = (double)(endProg - startProg) / (CLOCKS_PER_SEC); 
+            printf("program time: %f seconds\n", timeProg);
+            //exit(0);
+        }
+        
+        
+        for (int i = 0; i < 10; i++){
+            printf("%f\n",finalFnProbs[i]);
+            fprintf(pinFile,"%f\n",finalFnProbs[i]);
+        }
+
+        //printf("exit here\n");
+        //exit(0);
+    }
+    fclose(pinFile);
+    return 1;
+    //exit(0);
+
     
-    for (int i = 1; i <= maxMsgs; i++){
-        double numerator = Pi_i[i-1] * ((1 - pr) + pr*viArr[i-1]) * (1 - get_lucky(i-1));
-        double denominator = 1 - (pr*(1-viArr[i]) + (pr*viArr[i] + (1-pr))*get_lucky(i));
-        Pi_i[i] = numerator / denominator;
-        sumPi_i += Pi_i[i];
-        printf("pr: %f, v_%d:%f, v_%d:%f, gl_%d:%f, gl_%d:%f\n", pr, i-1, viArr[i-1], i, viArr[i], i-1, get_lucky(i-1), i, get_lucky(i));
-        printf("numerator:%f, denominator: %f\n", numerator, denominator);
-
-    }
-    // exit(0);
-    // now normalize them
-    for (int i = 0; i <= maxMsgs; i++){
-        Pi_i[i] /= sumPi_i;
-    }
-
-    // print them out 
-    double probsum = 0;
-    for (int i = 0; i <= maxMsgs; i++){
-        printf("Pi_%d: %f\n", i, Pi_i[i]);
-        probsum += Pi_i[i];
-    }
-    printf("sum: %f\n", probsum);
-
-    // false negative approximation
-    double fnProb = 0;
-    for (int i = 0; i <= maxMsgs; i++){
-        fnProb += Pi_i[i] * (1 - get_lucky(i)) * pr * viArr[i];
-    }
-    printf("fn prob approx: %f\n", fnProb);
-
-    clock_t endProg = clock();
-    double timeProg = (double)(endProg - startProg) / (CLOCKS_PER_SEC); 
-    printf("program time: %f seconds\n", timeProg);
-    exit(0);
+    // double targetFPRate = 0.0001;
+    // double targetFpEpsilon = targetFPRate / 10.0;
 
     
-    double targetFPRate = 0.0001;
-    double targetFpEpsilon = targetFPRate / 10.0;
-
-    ComputePhiK();
-    VerifyP_k();
 
     // ComputePsiK();
 
@@ -1055,17 +1236,49 @@ int Calculate(input_params p){
 
     
     
-    // compute pi_i arr-- steady-state probabilty of i bits in filter
-    // computeSteadyStateArr();
-    // overall false positive rate for filter at default Sigma
-    // double fpr = computeFalsePosRate(); 
+
+    
+    
+    
+
+    // FILE* fp = fopen("fp_curves.txt","w");
+
+    // for (int j = 0; j < numKVals; j++){
+    //     K = kArr[j];
+
+    //     int sigmaVals[9];
+    //     double fpRates[9];
+    //     for (int i = 0; i < 9; i++){
+    //         Sigma = (i+1)*100;
+    //         sigmaVals[i] = (int)Sigma;
+
+    //         // compute pi_i arr-- steady-state probabilty of i bits in filter
+    //         ComputePhiK();
+    //         VerifyP_k();
+    //         computeSteadyStateArr();
+    //         // overall false positive rate for filter at default Sigma
+    //         double fpr = computeFalsePosRate(); 
+    //         fpRates[i] = fpr;
+    //         printf("false positive rate: %f\n", fpr);
+    //         fprintf(fp,"%f\n",fpr);
+    //     }
+    // }
+    // fclose(fp);
+    // exit(0);
+    
+    
+    
+
+
+    //generatePlotFile(sigmaVals,9, fpRates,9);
+    exit(0);
     // finds the best Sigma for the desired fpr  
     // long long optSigma = findOptimalSigma(targetFPRate, targetFpEpsilon, fpr);
     // fpr = computeFalsePosRate(); // at optimal sigma
     
     // printf("final sigma: %lld, false pos rate: %f\n",Sigma, fpr);
 
-    // exit(0);
+    exit(0);
 
     InitLowerValid();
         
