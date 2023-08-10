@@ -21,7 +21,7 @@
 #define DELTA_MAX 0.1
 #define MAX_K 1000
 
-double pRepeat = 0.5;
+double pRepeat = 1;
 
 FILE *thefile;
 
@@ -468,11 +468,11 @@ void Init_f_b(){
     }
 
     // Will also clear out Frozen
-    for (int i=0;i<K;i++){
+    for (int i=0;i<=K;i++){
         FrozenFilterHas_i[i] = 0;
         FreezesFrom_i[i] = 1;
     // This assumes phi was already calculated
-        for (int j=0;j<(K-i);j++){
+        for (int j=0;j<=(K-i);j++){
             FreezesFrom_i[i] -= phi_k[_PK(Sigma-K+i,Sigma-K+i+j)];
         }
     }
@@ -506,21 +506,22 @@ void Iter_f_b(){
     if (1==1 || f_b[Sigma-K]>0){ // note that latter condition likely sufficient
         double frozeSum = 0;
         double overallFactor = 0;
-        for (int i=0;i<K;i++){
+        for (int i=0;i<=K;i++){
 
             
             double EtaPlusOne = 0;
             for (int i=0;i<dist_len;i++){
                 EtaPlusOne += (Eta_i[i] * (1 - udist[i]));
             }
+            frozeSum += FrozenFilterHas_i[i];
+            double miss = 1 - pow(((Sigma-K+i)*1.0)/(BloomSize*1.0),K);
+            overallFactor += FrozenFilterHas_i[i] * miss;
 
             FrozenFilterHas_i[i] += f_b[i+Sigma-K] * FreezesFrom_i[i] * EtaPlusOne;
             if (FrozenFilterHas_i[i] > .00001){
                 //printf("FF[%lld] at l=%ld: %.20lf\n", i+Sigma-K, ell, FrozenFilterHas_i[i]);
                 //printf("f_b[%lld]: %f, Frfr: %lf\n",i+Sigma-K, f_b[i+Sigma-K], FreezesFrom_i[i]);
-                frozeSum += FrozenFilterHas_i[i];
-                double miss = 1 - pow(((Sigma-K+i)*1.0)/(BloomSize*1.0),K);
-                overallFactor += FrozenFilterHas_i[i] * miss;
+            
                 //printf("frozeSum: %f, overallFactor: %f\n", frozeSum, overallFactor);
             }
         }
@@ -1040,7 +1041,8 @@ int Calculate(input_params p){
     clock_t startProg = clock();
 
     GenZipf(zipf_alpha);
-    
+    //GenZipf(0);
+
     fprintf(thefile, "B: %d, S: %lld, K: %lld, dlen: %d, alpha: %lf\n", BloomSize, Sigma, K, dist_len, zipf_alpha);
     
 
@@ -1057,6 +1059,7 @@ int Calculate(input_params p){
     sprintf(pinFileStr, "pin_fp_curves_%d_%.1f", BloomSize, zipf_alpha);
     printf("%s\n",pinFileStr);
     FILE* pinFile = fopen(pinFileStr,"w");
+
 
     // fill in sigma arr
     int SigmaArr[10] = {249, 374, 420, 444, 457, 467, 471, 474, 480, 480};
@@ -1160,7 +1163,7 @@ int Calculate(input_params p){
             printf("K:%d\n",K);
             printf("-m/k:%f\n",-((1.0*BloomSize)/K));
             printf("max msgs: %ld\n", maxMsgs);
-            double pr = 0.5;
+            double pr = pRepeat;
             // Pi i guess values
             Pi_i[0] = 1;
             double sumPi_i = 1;
@@ -1210,6 +1213,7 @@ int Calculate(input_params p){
             printf("%f\n",finalFnProbs[i]);
             fprintf(pinFile,"%f\n",finalFnProbs[i]);
         }
+        
 
         //printf("exit here\n");
         //exit(0);

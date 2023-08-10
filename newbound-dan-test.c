@@ -1,12 +1,13 @@
 #include "newbound-dan.c"
 
+// usage: ./a.out [M] [sigma*] [k*] [zipf N] [zipf s] 
 int main(int argc, char **argv){ // params: M, sigma, k, zipf N, zipf s
     input_params p;
     printf("argc: %d\n", argc);
 
     const int mArrLen = 1;
     const int sArrLen = 1;
-    int mArr[mArrLen] = {500};
+    int mArr[mArrLen] = {1000};
     float sArr[sArrLen] = {1};
     for (int j = 0; j < sArrLen; j++){
         p.BloomSize = mArr[0];
